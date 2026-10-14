@@ -95,7 +95,7 @@ Install it on your phone. This is the display server that renders the desktop.
 Open Termux and run:
 
 ```bash
-curl -sL https://raw.githubusercontent.com/moisescostajr/DroidDesk/main/termux-linux-setup.sh -o setup.sh
+curl -sL https://raw.githubusercontent.com/orailnoor/DroidDesk/main/termux-linux-setup.sh -o setup.sh
 bash setup.sh
 ```
 
@@ -153,7 +153,7 @@ sudo apt install realvnc-vnc-viewer
 Copy `pi-launch_phone.sh` to your Pi:
 
 ```bash
-curl -sL https://raw.githubusercontent.com/moisescostajr/DroidDesk/main/pi-launch_phone.sh -o ~/pi-launch_phone.sh
+curl -sL https://raw.githubusercontent.com/orailnoor/DroidDesk/main/pi-launch_phone.sh -o ~/pi-launch_phone.sh
 chmod +x ~/pi-launch_phone.sh
 ```
 

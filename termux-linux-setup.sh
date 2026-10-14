@@ -128,14 +128,15 @@ setup_environment() {
     echo -e "  ${WHITE}2) LXQt${NC}       — Ultra lightweight"
     echo -e "  ${WHITE}3) MATE${NC}       — Classic, moderate weight"
     echo -e "  ${WHITE}4) KDE Plasma${NC} — Modern, full-featured (needs strong GPU/RAM)"
+    echo -e "  ${WHITE}5) GNOME${NC}      — Modern Ubuntu/Debian UI (runs via PRoot container)"
     echo ""
     while true; do
-        read -p "Enter number (1-4) [default: 1]: " DE_INPUT
+        read -p "Enter number (1-5) [default: 1]: " DE_INPUT
         DE_INPUT=${DE_INPUT:-1}
-        if [[ "$DE_INPUT" =~ ^[1-4]$ ]]; then
+        if [[ "$DE_INPUT" =~ ^[1-5]$ ]]; then
             DE_CHOICE="$DE_INPUT"; break
         else
-            echo "Please enter 1, 2, 3, or 4."
+            echo "Please enter 1, 2, 3, 4, or 5."
         fi
     done
     case $DE_CHOICE in
@@ -143,6 +144,7 @@ setup_environment() {
         2) DE_NAME="LXQt";;
         3) DE_NAME="MATE";;
         4) DE_NAME="KDE Plasma";;
+        5) DE_NAME="GNOME";;
     esac
     echo -e "\n${GREEN}[+] Selected Desktop: ${DE_NAME}${NC}"
 
@@ -211,6 +213,10 @@ step_desktop() {
         install_pkg "plasma-desktop" "KDE Plasma"
         install_pkg "konsole" "Konsole"
         install_pkg "dolphin" "Dolphin"
+    elif [ "$DE_CHOICE" == "5" ]; then
+        echo -e "  [*] GNOME will be installed inside the PRoot container (Step 9)."
+        echo -e "  [*] Installing base Termux tools for GNOME..."
+        install_pkg "dconf" "DConf System"
     fi
 }
 
@@ -295,14 +301,20 @@ step_proot() {
     spinner $! "Downloading ${PROOT_LABEL} rootfs (may take a while)..."
 
     echo -e "  [*] Bootstrapping ${PROOT_LABEL}..."
+    local proot_base_pkgs="mesa-utils vulkan-tools libgl1-mesa-glx libvulkan1 libgles2 dbus-x11 sudo curl wget git htop nano"
+    if [ "$DE_CHOICE" == "5" ]; then
+        echo -e "  [*] Installing GNOME Desktop inside ${PROOT_LABEL}..."
+        proot_base_pkgs="$proot_base_pkgs gnome-session gnome-shell gnome-terminal nautilus gnome-tweaks gnome-settings-daemon adwaita-icon-theme-full"
+    else
+        proot_base_pkgs="$proot_base_pkgs xfce4 xfce4-terminal"
+    fi
+
     proot-distro login "$PROOT_DISTRO" -- bash -c "
         export DEBIAN_FRONTEND=noninteractive
         apt-get update -y -q > /dev/null 2>&1
-        apt-get install -y -q --no-install-recommends \
-            mesa-utils vulkan-tools \
-            libgl1-mesa-glx libvulkan1 libgles2 \
-            xfce4 xfce4-terminal dbus-x11 \
-            sudo curl wget git htop nano > /dev/null 2>&1
+        apt-get install -y -q --no-install-recommends $proot_base_pkgs > /dev/null 2>&1
+        # Fix systemd-logind / login1 conflict in PRoot for GNOME
+        for file in \$(find /usr -type f -iname \"*login1*\"); do rm -rf \"\$file\"; done 2>/dev/null || true
     " 2>/dev/null || true
     echo -e "  [+] ${PROOT_LABEL} ready."
 
@@ -622,6 +634,8 @@ EOF
         4) EXEC_CMD="(sleep 5 && pkill -9 plasmashell && plasmashell) > /dev/null 2>&1 &
 exec startplasma-x11"
            KILL_CMD="pkill -9 startplasma-x11 2>/dev/null; pkill -9 kwin_x11 2>/dev/null";;
+        5) EXEC_CMD="proot-distro login \"$PROOT_DISTRO\" \$BINDS --user \"$SETUP_USERNAME\" -- /bin/bash -c \"export DISPLAY=:0; export XDG_RUNTIME_DIR=/tmp; export XDG_SESSION_TYPE=x11; export MESA_NO_ERROR=1; dbus-run-session gnome-session\""
+           KILL_CMD="pkill -9 -f gnome-session 2>/dev/null; pkill -9 -f gnome-shell 2>/dev/null";;
     esac
 
     # ---- start-x11.sh ----
@@ -662,6 +676,12 @@ export DISPLAY=:0
 
 # Sync proot apps into menu (background, non-blocking)
 [ -f ~/proot-menu-sync.sh ] && bash ~/proot-menu-sync.sh > /dev/null 2>&1 &
+
+TERMUX_TMP="\${TMPDIR:-/data/data/com.termux/files/usr/tmp}"
+BINDS=""
+[ -d "\$TERMUX_TMP/.X11-unix" ] && BINDS="\$BINDS --bind \$TERMUX_TMP/.X11-unix:/tmp/.X11-unix"
+[ -d "/dev/dri" ]               && BINDS="\$BINDS --bind /dev/dri:/dev/dri"
+[ -e "/dev/kgsl-3d0" ]          && BINDS="\$BINDS --bind /dev/kgsl-3d0:/dev/kgsl-3d0"
 
 echo "----------------------------------------------"
 echo "  [*] Open the Termux-X11 app to see desktop"
@@ -939,6 +959,7 @@ EOF
     [ "$DE_CHOICE" == "2" ] && file_cmd="pcmanfm-qt"
     [ "$DE_CHOICE" == "3" ] && file_cmd="caja"
     [ "$DE_CHOICE" == "4" ] && file_cmd="dolphin"
+    [ "$DE_CHOICE" == "5" ] && file_cmd="nautilus"
 
     cat > ~/Desktop/Files.desktop << EOF
 [Desktop Entry]
@@ -952,6 +973,7 @@ EOF
     [ "$DE_CHOICE" == "2" ] && term_cmd="qterminal"
     [ "$DE_CHOICE" == "3" ] && term_cmd="mate-terminal"
     [ "$DE_CHOICE" == "4" ] && term_cmd="konsole"
+    [ "$DE_CHOICE" == "5" ] && term_cmd="gnome-terminal"
 
     cat > ~/Desktop/Terminal.desktop << EOF
 [Desktop Entry]
@@ -1010,6 +1032,7 @@ step_vnc_optional() {
             2) VNC_EXEC="exec startlxqt";;
             3) VNC_EXEC="exec mate-session";;
             4) VNC_EXEC="exec startplasma-x11";;
+            5) VNC_EXEC="proot-distro login \"$PROOT_DISTRO\" \$BINDS --user \"$SETUP_USERNAME\" -- /bin/bash -c \"export DISPLAY=:1; export XDG_RUNTIME_DIR=/tmp; export XDG_SESSION_TYPE=x11; export MESA_NO_ERROR=1; dbus-run-session gnome-session\"";;
         esac
 
         cat > ~/.vnc/xstartup << VNCSTARTUP
@@ -1023,6 +1046,13 @@ export TU_DEBUG=noconform
 export ZINK_DESCRIPTORS=lazy
 export XDG_DATA_DIRS=/data/data/com.termux/files/usr/share:\${XDG_DATA_DIRS}
 export XDG_CONFIG_DIRS=/data/data/com.termux/files/usr/etc/xdg:\${XDG_CONFIG_DIRS}
+
+TERMUX_TMP="\${TMPDIR:-/data/data/com.termux/files/usr/tmp}"
+BINDS=""
+[ -d "\$TERMUX_TMP/.X11-unix" ] && BINDS="\$BINDS --bind \$TERMUX_TMP/.X11-unix:/tmp/.X11-unix"
+[ -d "/dev/dri" ]               && BINDS="\$BINDS --bind /dev/dri:/dev/dri"
+[ -e "/dev/kgsl-3d0" ]          && BINDS="\$BINDS --bind /dev/kgsl-3d0:/dev/kgsl-3d0"
+
 $VNC_EXEC
 VNCSTARTUP
         chmod +x ~/.vnc/xstartup
